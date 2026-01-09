@@ -11,6 +11,7 @@ const PREMADE_PATH = path.join(
   "npc_statblocks_compendium_2019.json"
 );
 const PREMADE_SOURCE = "NPC Statblocks Compendium 2019";
+const PARSER_PATH = path.join(process.cwd(), "website-data", "js", "parser.js");
 
 const SIZE_MAP: Record<string, string> = {
   T: "Tiny",
@@ -70,9 +71,47 @@ function formatLanguages(languages: unknown): string {
   return parts.join(", ");
 }
 
+async function loadSourceLabels(): Promise<Map<string, string>> {
+  const content = await fs.readFile(PARSER_PATH, "utf-8");
+  const sourceMap = new Map<string, string>();
+
+  const codeMatches = content.matchAll(
+    /Parser\\.SRC_[A-Z0-9_]+\\s*=\\s*\"([^\"]+)\"/g
+  );
+  const codeByConst = new Map<string, string>();
+  for (const match of codeMatches) {
+    const fullMatch = match[0];
+    const constMatch = fullMatch.match(/Parser\\.(SRC_[A-Z0-9_]+)/);
+    if (!constMatch) continue;
+    codeByConst.set(constMatch[1], match[1]);
+  }
+
+  const labelMatches = content.matchAll(
+    /Parser\\.SOURCE_JSON_TO_FULL\\[Parser\\.(SRC_[A-Z0-9_]+)\\]\\s*=\\s*\"([^\"]+)\"/g
+  );
+  for (const match of labelMatches) {
+    const code = codeByConst.get(match[1]);
+    if (!code) continue;
+    sourceMap.set(code, match[2]);
+  }
+
+  sourceMap.set(PREMADE_SOURCE, PREMADE_SOURCE);
+  return sourceMap;
+}
+
+function buildSourceOptions(
+  codes: string[],
+  labels: Map<string, string>
+): Array<{ code: string; label: string }> {
+  return Array.from(new Set(codes))
+    .sort((a, b) => a.localeCompare(b))
+    .map((code) => ({ code, label: labels.get(code) ?? code }));
+}
+
 async function loadRaces() {
   const racesPath = path.join(DATA_DIR, "races.json");
   const data = JSON.parse(await fs.readFile(racesPath, "utf-8"));
+  const sourceLabels = await loadSourceLabels();
   const items = (data.race ?? []).map((race: Record<string, unknown>) => {
     const size = Array.isArray(race.size) ? race.size[0] : race.size;
     return {
@@ -85,13 +124,17 @@ async function loadRaces() {
       source: (race.source as string) ?? "Unknown"
     };
   });
-  const sources = Array.from(new Set(items.map((item) => item.source))).sort();
+  const sources = buildSourceOptions(
+    items.map((item) => item.source),
+    sourceLabels
+  );
   return { items, sources };
 }
 
 async function loadClasses() {
   const entries = await fs.readdir(CLASS_DIR);
   const classes: Array<Record<string, unknown>> = [];
+  const sourceLabels = await loadSourceLabels();
 
   for (const entry of entries) {
     if (!entry.endsWith(".json")) continue;
@@ -108,11 +151,15 @@ async function loadClasses() {
     startingProficiencies: cls.startingProficiencies ?? null,
     source: (cls.source as string) ?? "Unknown"
   }));
-  const sources = Array.from(new Set(items.map((item) => item.source))).sort();
+  const sources = buildSourceOptions(
+    items.map((item) => item.source),
+    sourceLabels
+  );
   return { items, sources };
 }
 
 async function loadPremades() {
+  const sourceLabels = await loadSourceLabels();
   const data = JSON.parse(await fs.readFile(PREMADE_PATH, "utf-8"));
   const items = Array.isArray(data)
     ? data.map((item: Record<string, unknown>) => ({
@@ -120,7 +167,10 @@ async function loadPremades() {
         source: PREMADE_SOURCE
       }))
     : [];
-  return { items, sources: [PREMADE_SOURCE] };
+  return {
+    items,
+    sources: buildSourceOptions([PREMADE_SOURCE], sourceLabels)
+  };
 }
 
 export async function GET(request: Request) {

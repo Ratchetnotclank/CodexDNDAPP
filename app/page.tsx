@@ -166,12 +166,16 @@ export default function HomePage() {
   const [raceOptions, setRaceOptions] = useState<RaceOption[]>([]);
   const [classOptions, setClassOptions] = useState<ClassOption[]>([]);
   const [premadeBlocks, setPremadeBlocks] = useState<PremadeBlock[]>([]);
-  const [sourceOptions, setSourceOptions] = useState<string[]>([]);
+  const [sourceOptions, setSourceOptions] = useState<
+    Array<{ code: string; label: string }>
+  >([]);
   const [selectedSources, setSelectedSources] = useState<string[]>([]);
   const [selectedRace, setSelectedRace] = useState("Custom");
   const [selectedClass, setSelectedClass] = useState("Custom");
   const [selectedPremade, setSelectedPremade] = useState("Custom");
   const [autoApplyClassArray, setAutoApplyClassArray] = useState(true);
+  const [customRace, setCustomRace] = useState("");
+  const [customClass, setCustomClass] = useState("");
   const [draftName, setDraftName] = useState("draft");
   const [status, setStatus] = useState<string>("");
 
@@ -179,6 +183,10 @@ export default function HomePage() {
   const activeSourceSet = useMemo(
     () => new Set(selectedSources),
     [selectedSources]
+  );
+  const sourceLabelMap = useMemo(
+    () => new Map(sourceOptions.map((source) => [source.code, source.label])),
+    [sourceOptions]
   );
   const filteredRaceOptions = useMemo(
     () =>
@@ -225,13 +233,15 @@ export default function HomePage() {
   };
 
   const handleSourceSelectAll = (checked: boolean) => {
-    setSelectedSources(checked ? sourceOptions : []);
+    setSelectedSources(checked ? sourceOptions.map((opt) => opt.code) : []);
   };
 
   const handleRaceSelect = (value: string) => {
     setSelectedRace(value);
     if (value === "Custom") {
-      updateNpc({ race: "" });
+      const nextCustom = customRace || npc.race || "";
+      setCustomRace(nextCustom);
+      updateNpc({ race: nextCustom });
       return;
     }
     const race = raceOptions.find((option) => option.name === value);
@@ -250,7 +260,9 @@ export default function HomePage() {
   const handleClassSelect = (value: string) => {
     setSelectedClass(value);
     if (value === "Custom") {
-      updateNpc({ class: "" });
+      const nextCustom = customClass || npc.class || "";
+      setCustomClass(nextCustom);
+      updateNpc({ class: nextCustom });
       return;
     }
     const cls = classOptions.find((option) => option.name === value);
@@ -291,14 +303,16 @@ export default function HomePage() {
         let premadeSources: string[] = [];
 
         if (racesResponse.ok) {
-          const data = (await racesResponse.json()) as ReferenceResponse<RaceOption>;
+          const data =
+            (await racesResponse.json()) as ReferenceResponse<RaceOption>;
           setRaceOptions(
             data.items.sort((a, b) => a.name.localeCompare(b.name))
           );
           raceSources = data.sources;
         }
         if (classesResponse.ok) {
-          const data = (await classesResponse.json()) as ReferenceResponse<ClassOption>;
+          const data =
+            (await classesResponse.json()) as ReferenceResponse<ClassOption>;
           setClassOptions(
             data.items.sort((a, b) => a.name.localeCompare(b.name))
           );
@@ -311,11 +325,14 @@ export default function HomePage() {
           premadeSources = data.sources;
         }
 
-        const combinedSources = Array.from(
-          new Set([...raceSources, ...classSources, ...premadeSources])
-        ).sort();
-        setSourceOptions(combinedSources);
-        setSelectedSources(combinedSources);
+        const combined = [...raceSources, ...classSources, ...premadeSources];
+        const merged = new Map<string, string>();
+        combined.forEach((source) => merged.set(source.code, source.label));
+        const mergedSources = Array.from(merged.entries())
+          .map(([code, label]) => ({ code, label }))
+          .sort((a, b) => a.label.localeCompare(b.label));
+        setSourceOptions(mergedSources);
+        setSelectedSources(mergedSources.map((source) => source.code));
       } catch (error) {
         setStatus("Failed to load reference data.");
       }
@@ -329,9 +346,24 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => {
-    setSelectedRace(npc.race ? npc.race : "Custom");
-    setSelectedClass(npc.class ? npc.class : "Custom");
-  }, [npc.race, npc.class]);
+    const raceMatch = raceOptions.some((option) => option.name === npc.race);
+    if (raceMatch) {
+      setSelectedRace(npc.race ?? "Custom");
+    } else {
+      setSelectedRace("Custom");
+      setCustomRace(npc.race ?? "");
+    }
+  }, [npc.race, raceOptions]);
+
+  useEffect(() => {
+    const classMatch = classOptions.some((option) => option.name === npc.class);
+    if (classMatch) {
+      setSelectedClass(npc.class ?? "Custom");
+    } else {
+      setSelectedClass("Custom");
+      setCustomClass(npc.class ?? "");
+    }
+  }, [npc.class, classOptions]);
 
   useEffect(() => {
     if (!autoApplyClassArray || selectedClass === "Custom") return;
@@ -419,13 +451,16 @@ export default function HomePage() {
               </label>
               <div className="row-tight" style={{ marginTop: 8 }}>
                 {sourceOptions.map((source) => (
-                  <label key={source} style={{ display: "flex", gap: 8 }}>
+                  <label key={source.code} style={{ display: "flex", gap: 8 }}>
                     <input
                       type="checkbox"
-                      checked={selectedSources.includes(source)}
-                      onChange={() => handleSourceToggle(source)}
+                      checked={selectedSources.includes(source.code)}
+                      onChange={() => handleSourceToggle(source.code)}
                     />
-                    {source}
+                    {source.label}
+                    {source.label !== source.code && (
+                      <span className="muted">({source.code})</span>
+                    )}
                   </label>
                 ))}
               </div>
@@ -452,11 +487,14 @@ export default function HomePage() {
                   <option value="Custom">Custom</option>
                   {filteredPremadeBlocks.map((block) => (
                     <option key={block.name} value={block.name}>
-                      {block.name} ({block.source})
+                      {block.name} ({sourceLabelMap.get(block.source) ?? block.source})
                     </option>
                   ))}
                 </select>
               </label>
+              {filteredPremadeBlocks.length === 0 && selectedSources.length > 0 && (
+                <div className="muted">No premades match selected sources.</div>
+              )}
             </div>
           </div>
 
@@ -476,16 +514,22 @@ export default function HomePage() {
                   <option value="Custom">Custom</option>
                   {filteredRaceOptions.map((race) => (
                     <option key={race.name} value={race.name}>
-                      {race.name} ({race.source})
+                      {race.name} ({sourceLabelMap.get(race.source) ?? race.source})
                     </option>
                   ))}
                 </select>
               </label>
+              {filteredRaceOptions.length === 0 && selectedSources.length > 0 && (
+                <div className="muted">No races match selected sources.</div>
+              )}
               {selectedRace === "Custom" && (
                 <TextField
                   label="Race (Custom)"
-                  value={npc.race ?? ""}
-                  onChange={(value) => updateNpc({ race: value })}
+                  value={customRace}
+                  onChange={(value) => {
+                    setCustomRace(value);
+                    updateNpc({ race: value });
+                  }}
                 />
               )}
               <label>
@@ -497,16 +541,22 @@ export default function HomePage() {
                   <option value="Custom">Custom</option>
                   {filteredClassOptions.map((cls) => (
                     <option key={cls.name} value={cls.name}>
-                      {cls.name} ({cls.source})
+                      {cls.name} ({sourceLabelMap.get(cls.source) ?? cls.source})
                     </option>
                   ))}
                 </select>
               </label>
+              {filteredClassOptions.length === 0 && selectedSources.length > 0 && (
+                <div className="muted">No classes match selected sources.</div>
+              )}
               {selectedClass === "Custom" && (
                 <TextField
                   label="Class (Custom)"
-                  value={npc.class ?? ""}
-                  onChange={(value) => updateNpc({ class: value })}
+                  value={customClass}
+                  onChange={(value) => {
+                    setCustomClass(value);
+                    updateNpc({ class: value });
+                  }}
                 />
               )}
               <TextField
