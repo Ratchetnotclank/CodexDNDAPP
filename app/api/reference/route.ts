@@ -10,6 +10,7 @@ const PREMADE_PATH = path.join(
   "premade-blocks",
   "npc_statblocks_compendium_2019.json"
 );
+const PREMADE_SOURCE = "NPC Statblocks Compendium 2019";
 
 const SIZE_MAP: Record<string, string> = {
   T: "Tiny",
@@ -72,7 +73,7 @@ function formatLanguages(languages: unknown): string {
 async function loadRaces() {
   const racesPath = path.join(DATA_DIR, "races.json");
   const data = JSON.parse(await fs.readFile(racesPath, "utf-8"));
-  return (data.race ?? []).map((race: Record<string, unknown>) => {
+  const items = (data.race ?? []).map((race: Record<string, unknown>) => {
     const size = Array.isArray(race.size) ? race.size[0] : race.size;
     return {
       name: race.name as string,
@@ -80,9 +81,12 @@ async function loadRaces() {
       speed: formatSpeed(race.speed),
       languages: formatLanguages(race.languageProficiencies),
       creatureTypes: race.creatureTypes ?? ["humanoid"],
-      darkvision: typeof race.darkvision === "number" ? race.darkvision : null
+      darkvision: typeof race.darkvision === "number" ? race.darkvision : null,
+      source: (race.source as string) ?? "Unknown"
     };
   });
+  const sources = Array.from(new Set(items.map((item) => item.source))).sort();
+  return { items, sources };
 }
 
 async function loadClasses() {
@@ -98,16 +102,25 @@ async function loadClasses() {
     }
   }
 
-  return classes.map((cls) => ({
+  const items = classes.map((cls) => ({
     name: cls.name as string,
     spellcastingAbility: (cls.spellcastingAbility as string) ?? null,
-    startingProficiencies: cls.startingProficiencies ?? null
+    startingProficiencies: cls.startingProficiencies ?? null,
+    source: (cls.source as string) ?? "Unknown"
   }));
+  const sources = Array.from(new Set(items.map((item) => item.source))).sort();
+  return { items, sources };
 }
 
 async function loadPremades() {
   const data = JSON.parse(await fs.readFile(PREMADE_PATH, "utf-8"));
-  return Array.isArray(data) ? data : [];
+  const items = Array.isArray(data)
+    ? data.map((item: Record<string, unknown>) => ({
+        ...item,
+        source: PREMADE_SOURCE
+      }))
+    : [];
+  return { items, sources: [PREMADE_SOURCE] };
 }
 
 export async function GET(request: Request) {

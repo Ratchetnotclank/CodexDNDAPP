@@ -9,7 +9,12 @@ import TextField from "@/components/TextField";
 import { createHumanMerchant } from "@/lib/archetypes";
 import { applyStandardArray } from "@/lib/classDefaults";
 import { formatStatblock } from "@/lib/formatter";
-import type { ClassOption, PremadeBlock, RaceOption } from "@/lib/referenceTypes";
+import type {
+  ClassOption,
+  PremadeBlock,
+  RaceOption,
+  ReferenceResponse
+} from "@/lib/referenceTypes";
 import type { NPC } from "@/lib/types";
 
 const SPEED_ORDER = ["walk", "fly", "climb", "swim", "burrow"] as const;
@@ -161,6 +166,8 @@ export default function HomePage() {
   const [raceOptions, setRaceOptions] = useState<RaceOption[]>([]);
   const [classOptions, setClassOptions] = useState<ClassOption[]>([]);
   const [premadeBlocks, setPremadeBlocks] = useState<PremadeBlock[]>([]);
+  const [sourceOptions, setSourceOptions] = useState<string[]>([]);
+  const [selectedSources, setSelectedSources] = useState<string[]>([]);
   const [selectedRace, setSelectedRace] = useState("Custom");
   const [selectedClass, setSelectedClass] = useState("Custom");
   const [selectedPremade, setSelectedPremade] = useState("Custom");
@@ -169,6 +176,34 @@ export default function HomePage() {
   const [status, setStatus] = useState<string>("");
 
   const previewText = useMemo(() => formatStatblock(npc), [npc]);
+  const activeSourceSet = useMemo(
+    () => new Set(selectedSources),
+    [selectedSources]
+  );
+  const filteredRaceOptions = useMemo(
+    () =>
+      raceOptions.filter(
+        (option) =>
+          selectedSources.length === 0 || activeSourceSet.has(option.source)
+      ),
+    [raceOptions, activeSourceSet, selectedSources.length]
+  );
+  const filteredClassOptions = useMemo(
+    () =>
+      classOptions.filter(
+        (option) =>
+          selectedSources.length === 0 || activeSourceSet.has(option.source)
+      ),
+    [classOptions, activeSourceSet, selectedSources.length]
+  );
+  const filteredPremadeBlocks = useMemo(
+    () =>
+      premadeBlocks.filter(
+        (block) =>
+          selectedSources.length === 0 || activeSourceSet.has(block.source)
+      ),
+    [premadeBlocks, activeSourceSet, selectedSources.length]
+  );
 
   const updateNpc = (updates: Partial<NPC>) => {
     setNpc((current) => ({ ...current, ...updates }));
@@ -179,6 +214,18 @@ export default function HomePage() {
       ...current,
       hitPoints: { ...current.hitPoints, ...updates }
     }));
+  };
+
+  const handleSourceToggle = (source: string) => {
+    setSelectedSources((current) =>
+      current.includes(source)
+        ? current.filter((item) => item !== source)
+        : [...current, source]
+    );
+  };
+
+  const handleSourceSelectAll = (checked: boolean) => {
+    setSelectedSources(checked ? sourceOptions : []);
   };
 
   const handleRaceSelect = (value: string) => {
@@ -239,18 +286,36 @@ export default function HomePage() {
           ]);
 
         if (!active) return;
+        let raceSources: string[] = [];
+        let classSources: string[] = [];
+        let premadeSources: string[] = [];
+
         if (racesResponse.ok) {
-          const data = (await racesResponse.json()) as RaceOption[];
-          setRaceOptions(data.sort((a, b) => a.name.localeCompare(b.name)));
+          const data = (await racesResponse.json()) as ReferenceResponse<RaceOption>;
+          setRaceOptions(
+            data.items.sort((a, b) => a.name.localeCompare(b.name))
+          );
+          raceSources = data.sources;
         }
         if (classesResponse.ok) {
-          const data = (await classesResponse.json()) as ClassOption[];
-          setClassOptions(data.sort((a, b) => a.name.localeCompare(b.name)));
+          const data = (await classesResponse.json()) as ReferenceResponse<ClassOption>;
+          setClassOptions(
+            data.items.sort((a, b) => a.name.localeCompare(b.name))
+          );
+          classSources = data.sources;
         }
         if (premadesResponse.ok) {
-          const data = (await premadesResponse.json()) as PremadeBlock[];
-          setPremadeBlocks(data);
+          const data =
+            (await premadesResponse.json()) as ReferenceResponse<PremadeBlock>;
+          setPremadeBlocks(data.items);
+          premadeSources = data.sources;
         }
+
+        const combinedSources = Array.from(
+          new Set([...raceSources, ...classSources, ...premadeSources])
+        ).sort();
+        setSourceOptions(combinedSources);
+        setSelectedSources(combinedSources);
       } catch (error) {
         setStatus("Failed to load reference data.");
       }
@@ -335,6 +400,40 @@ export default function HomePage() {
       <h1>DnD Statblock Builder</h1>
       <p>Build a 5e NPC statblock and export it for Foundry import.</p>
 
+      <section className="panel" style={{ marginBottom: 24 }}>
+        <div className="section">
+          <strong>Source Filters</strong>
+          {sourceOptions.length === 0 ? (
+            <div className="muted">No source metadata loaded yet.</div>
+          ) : (
+            <>
+              <label style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                <input
+                  type="checkbox"
+                  checked={selectedSources.length === sourceOptions.length}
+                  onChange={(event) =>
+                    handleSourceSelectAll(event.target.checked)
+                  }
+                />
+                Select all sources
+              </label>
+              <div className="row-tight" style={{ marginTop: 8 }}>
+                {sourceOptions.map((source) => (
+                  <label key={source} style={{ display: "flex", gap: 8 }}>
+                    <input
+                      type="checkbox"
+                      checked={selectedSources.includes(source)}
+                      onChange={() => handleSourceToggle(source)}
+                    />
+                    {source}
+                  </label>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      </section>
+
       <div className="layout">
         <section className="panel">
           <div className="section">
@@ -351,9 +450,9 @@ export default function HomePage() {
                   onChange={(event) => handlePremadeSelect(event.target.value)}
                 >
                   <option value="Custom">Custom</option>
-                  {premadeBlocks.map((block) => (
+                  {filteredPremadeBlocks.map((block) => (
                     <option key={block.name} value={block.name}>
-                      {block.name}
+                      {block.name} ({block.source})
                     </option>
                   ))}
                 </select>
@@ -375,9 +474,9 @@ export default function HomePage() {
                   onChange={(event) => handleRaceSelect(event.target.value)}
                 >
                   <option value="Custom">Custom</option>
-                  {raceOptions.map((race) => (
+                  {filteredRaceOptions.map((race) => (
                     <option key={race.name} value={race.name}>
-                      {race.name}
+                      {race.name} ({race.source})
                     </option>
                   ))}
                 </select>
@@ -396,9 +495,9 @@ export default function HomePage() {
                   onChange={(event) => handleClassSelect(event.target.value)}
                 >
                   <option value="Custom">Custom</option>
-                  {classOptions.map((cls) => (
+                  {filteredClassOptions.map((cls) => (
                     <option key={cls.name} value={cls.name}>
-                      {cls.name}
+                      {cls.name} ({cls.source})
                     </option>
                   ))}
                 </select>
