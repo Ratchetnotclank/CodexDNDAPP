@@ -39,6 +39,14 @@ export function formatStatblock(npc: NPC): string {
 
   if (npc.saves?.trim()) lines.push(`Saves ${npc.saves}`);
   if (npc.skills?.trim()) lines.push(`Skills ${npc.skills}`);
+  if (npc.damageVulnerabilities?.trim())
+    lines.push(`Damage Vulnerabilities ${npc.damageVulnerabilities}`);
+  if (npc.damageResistances?.trim())
+    lines.push(`Damage Resistances ${npc.damageResistances}`);
+  if (npc.damageImmunities?.trim())
+    lines.push(`Damage Immunities ${npc.damageImmunities}`);
+  if (npc.conditionImmunities?.trim())
+    lines.push(`Condition Immunities ${npc.conditionImmunities}`);
   if (npc.senses?.trim()) lines.push(`Senses ${npc.senses}`);
   if (npc.languages?.trim()) lines.push(`Languages ${npc.languages}`);
   if (npc.challengeRating?.trim()) lines.push(`Challenge ${npc.challengeRating}`);
@@ -60,6 +68,20 @@ export function formatStatblock(npc: NPC): string {
   const actionsBlock = formatNamedEntries(npc.actions);
   if (actionsBlock) {
     lines.push(actionsBlock);
+  }
+
+  const bonusActionsBlock = formatNamedEntries(npc.bonusActions ?? []);
+  if (bonusActionsBlock) {
+    lines.push("");
+    lines.push("Bonus Actions");
+    lines.push(bonusActionsBlock);
+  }
+
+  const reactionsBlock = formatNamedEntries(npc.reactions ?? []);
+  if (reactionsBlock) {
+    lines.push("");
+    lines.push("Reactions");
+    lines.push(reactionsBlock);
   }
 
   return lines.join("\n").trim();

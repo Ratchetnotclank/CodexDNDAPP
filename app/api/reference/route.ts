@@ -1,0 +1,132 @@
+import { NextResponse } from "next/server";
+import { promises as fs } from "fs";
+import path from "path";
+
+const DATA_DIR = path.join(process.cwd(), "website-data", "data");
+const CLASS_DIR = path.join(DATA_DIR, "class");
+const PREMADE_PATH = path.join(
+  process.cwd(),
+  "website-data",
+  "premade-blocks",
+  "npc_statblocks_compendium_2019.json"
+);
+
+const SIZE_MAP: Record<string, string> = {
+  T: "Tiny",
+  S: "Small",
+  M: "Medium",
+  L: "Large",
+  H: "Huge",
+  G: "Gargantuan"
+};
+
+const SPEED_ORDER = ["walk", "fly", "climb", "swim", "burrow"];
+
+function toTitleCase(value: string): string {
+  return value
+    .split(" ")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+function formatSpeed(speed: unknown): string {
+  if (typeof speed === "number") return `${speed} ft.`;
+  if (!speed || typeof speed !== "object") return "";
+
+  const parts: string[] = [];
+  for (const key of SPEED_ORDER) {
+    const value = (speed as Record<string, unknown>)[key];
+    if (typeof value === "number") {
+      parts.push(key === "walk" ? `${value} ft.` : `${key} ${value} ft.`);
+    }
+  }
+  return parts.join(", ");
+}
+
+function formatLanguages(languages: unknown): string {
+  if (!Array.isArray(languages)) return "";
+  const parts: string[] = [];
+
+  for (const entry of languages) {
+    if (!entry || typeof entry !== "object") continue;
+    const record = entry as Record<string, unknown>;
+    for (const [key, value] of Object.entries(record)) {
+      if (key === "anyStandard" && typeof value === "number") {
+        parts.push(`any ${value} standard languages`);
+      } else if (key === "any" && typeof value === "number") {
+        parts.push(`any ${value} languages`);
+      } else if (key === "choose" && value && typeof value === "object") {
+        const choice = value as Record<string, unknown>;
+        const from = Array.isArray(choice.from) ? choice.from.join(", ") : "";
+        const count = typeof choice.count === "number" ? choice.count : 1;
+        parts.push(`choose ${count} from ${from}`.trim());
+      } else if (value === true) {
+        parts.push(toTitleCase(key.replace(/_/g, " ")));
+      }
+    }
+  }
+
+  return parts.join(", ");
+}
+
+async function loadRaces() {
+  const racesPath = path.join(DATA_DIR, "races.json");
+  const data = JSON.parse(await fs.readFile(racesPath, "utf-8"));
+  return (data.race ?? []).map((race: Record<string, unknown>) => {
+    const size = Array.isArray(race.size) ? race.size[0] : race.size;
+    return {
+      name: race.name as string,
+      size: SIZE_MAP[String(size)] ?? "Medium",
+      speed: formatSpeed(race.speed),
+      languages: formatLanguages(race.languageProficiencies),
+      creatureTypes: race.creatureTypes ?? ["humanoid"],
+      darkvision: typeof race.darkvision === "number" ? race.darkvision : null
+    };
+  });
+}
+
+async function loadClasses() {
+  const entries = await fs.readdir(CLASS_DIR);
+  const classes: Array<Record<string, unknown>> = [];
+
+  for (const entry of entries) {
+    if (!entry.endsWith(".json")) continue;
+    const filePath = path.join(CLASS_DIR, entry);
+    const data = JSON.parse(await fs.readFile(filePath, "utf-8"));
+    if (Array.isArray(data.class)) {
+      classes.push(...data.class);
+    }
+  }
+
+  return classes.map((cls) => ({
+    name: cls.name as string,
+    spellcastingAbility: (cls.spellcastingAbility as string) ?? null,
+    startingProficiencies: cls.startingProficiencies ?? null
+  }));
+}
+
+async function loadPremades() {
+  const data = JSON.parse(await fs.readFile(PREMADE_PATH, "utf-8"));
+  return Array.isArray(data) ? data : [];
+}
+
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const type = searchParams.get("type");
+
+  try {
+    if (type === "races") {
+      return NextResponse.json(await loadRaces());
+    }
+    if (type === "classes") {
+      return NextResponse.json(await loadClasses());
+    }
+    if (type === "premades") {
+      return NextResponse.json(await loadPremades());
+    }
+
+    return NextResponse.json({ error: "Unknown reference type" }, { status: 400 });
+  } catch (error) {
+    return NextResponse.json({ error: "Failed to load reference data" }, { status: 500 });
+  }
+}
