@@ -1,18 +1,129 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import AbilityScores from "@/components/AbilityScores";
 import ListEditor from "@/components/ListEditor";
 import Preview from "@/components/Preview";
 import TextAreaField from "@/components/TextAreaField";
 import TextField from "@/components/TextField";
 import { createHumanMerchant } from "@/lib/archetypes";
+import { applyStandardArray } from "@/lib/classDefaults";
 import { formatStatblock } from "@/lib/formatter";
+import type { ClassOption, PremadeBlock, RaceOption } from "@/lib/referenceTypes";
 import type { NPC } from "@/lib/types";
+
+const SPEED_ORDER = ["walk", "fly", "climb", "swim", "burrow"] as const;
+
+const ABILITY_KEYS = ["str", "dex", "con", "int", "wis", "cha"] as const;
+
+function formatSpeedValue(speed: number | Record<string, number>): string {
+  if (typeof speed === "number") return `${speed} ft.`;
+  const parts: string[] = [];
+  for (const key of SPEED_ORDER) {
+    const value = speed[key];
+    if (typeof value === "number") {
+      parts.push(key === "walk" ? `${value} ft.` : `${key} ${value} ft.`);
+    }
+  }
+  return parts.join(", ");
+}
+
+function mapPremadeToNpc(block: PremadeBlock): NPC {
+  const armorClass =
+    typeof block.armor_class === "number"
+      ? block.armor_class
+      : block.armor_class?.value ?? 10;
+  const hitPoints = block.hit_points ?? { average: 1, formula: "" };
+  const speed = formatSpeedValue(block.speed ?? 30);
+
+  const abilities = ABILITY_KEYS.reduce(
+    (acc, key) => ({
+      ...acc,
+      [key]: block.abilities?.[key]?.score ?? 10
+    }),
+    {} as NPC["abilities"]
+  );
+
+  return {
+    name: block.name,
+    size: block.size as NPC["size"],
+    type: block.type,
+    alignment: block.alignment,
+    armorClass,
+    hitPoints: {
+      average: hitPoints.average ?? 1,
+      formula: hitPoints.formula
+    },
+    speed,
+    abilities,
+    saves: block.saving_throws?.join(", ") ?? "",
+    skills: block.skills?.join(", ") ?? "",
+    senses: block.senses ?? "",
+    languages: block.languages ?? "",
+    damageVulnerabilities: block.damage_vulnerabilities?.join(", ") ?? "",
+    damageResistances: block.damage_resistances?.join(", ") ?? "",
+    damageImmunities: block.damage_immunities?.join(", ") ?? "",
+    conditionImmunities: block.condition_immunities?.join(", ") ?? "",
+    challengeRating:
+      typeof block.challenge === "string"
+        ? block.challenge
+        : block.challenge?.cr ?? "",
+    traits:
+      block.traits?.map((trait) => ({
+        name: trait.name,
+        description: trait.text
+      })) ?? [],
+    actions:
+      block.actions?.map((action) => ({
+        name: action.name,
+        description: action.text
+      })) ?? [],
+    bonusActions:
+      block.bonus_actions?.map((action) => ({
+        name: action.name,
+        description: action.text
+      })) ?? [],
+    reactions:
+      block.reactions?.map((action) => ({
+        name: action.name,
+        description: action.text
+      })) ?? [],
+    spellcasting: ""
+  };
+}
+
+function formatClassSkillChoices(cls: ClassOption): string {
+  const choices = cls.startingProficiencies?.skills;
+  if (!choices || choices.length === 0) return "";
+  const choice = choices[0]?.choose;
+  if (!choice) return "";
+  const from = choice.from.map((skill) =>
+    skill
+      .split(" ")
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(" ")
+  );
+  return `Choose ${choice.count} from ${from.join(", ")}`;
+}
+
+function mergeDarkvision(current: string, darkvision: number | null): string {
+  if (!darkvision) return current;
+  const darkvisionText = `darkvision ${darkvision} ft.`;
+  if (!current) return darkvisionText;
+  if (current.toLowerCase().includes("darkvision")) return current;
+  return `${darkvisionText}, ${current}`;
+}
+
+function buildTypeFromRace(raceName: string, creatureTypes: string[]): string {
+  const baseType = creatureTypes[0] ?? "humanoid";
+  return `${baseType} (${raceName.toLowerCase()})`;
+}
 
 const DEFAULT_NPC: NPC = {
   name: "New NPC",
   size: "Medium",
+  race: "",
+  class: "",
   type: "humanoid (human)",
   alignment: "neutral",
   armorClass: 10,
@@ -33,14 +144,27 @@ const DEFAULT_NPC: NPC = {
   skills: "",
   senses: "passive Perception 10",
   languages: "Common",
+  damageVulnerabilities: "",
+  damageResistances: "",
+  damageImmunities: "",
+  conditionImmunities: "",
   challengeRating: "—",
   traits: [],
   actions: [],
+  bonusActions: [],
+  reactions: [],
   spellcasting: ""
 };
 
 export default function HomePage() {
   const [npc, setNpc] = useState<NPC>(DEFAULT_NPC);
+  const [raceOptions, setRaceOptions] = useState<RaceOption[]>([]);
+  const [classOptions, setClassOptions] = useState<ClassOption[]>([]);
+  const [premadeBlocks, setPremadeBlocks] = useState<PremadeBlock[]>([]);
+  const [selectedRace, setSelectedRace] = useState("Custom");
+  const [selectedClass, setSelectedClass] = useState("Custom");
+  const [selectedPremade, setSelectedPremade] = useState("Custom");
+  const [autoApplyClassArray, setAutoApplyClassArray] = useState(true);
   const [draftName, setDraftName] = useState("draft");
   const [status, setStatus] = useState<string>("");
 
@@ -56,6 +180,103 @@ export default function HomePage() {
       hitPoints: { ...current.hitPoints, ...updates }
     }));
   };
+
+  const handleRaceSelect = (value: string) => {
+    setSelectedRace(value);
+    if (value === "Custom") {
+      updateNpc({ race: "" });
+      return;
+    }
+    const race = raceOptions.find((option) => option.name === value);
+    if (!race) return;
+
+    updateNpc({
+      race: race.name,
+      size: race.size as NPC["size"],
+      speed: race.speed || npc.speed,
+      languages: race.languages || npc.languages,
+      senses: mergeDarkvision(npc.senses ?? "", race.darkvision),
+      type: buildTypeFromRace(race.name, race.creatureTypes)
+    });
+  };
+
+  const handleClassSelect = (value: string) => {
+    setSelectedClass(value);
+    if (value === "Custom") {
+      updateNpc({ class: "" });
+      return;
+    }
+    const cls = classOptions.find((option) => option.name === value);
+    if (!cls) return;
+
+    setNpc((current) => ({
+      ...current,
+      class: cls.name,
+      skills: formatClassSkillChoices(cls) || current.skills,
+      abilities: autoApplyClassArray
+        ? applyStandardArray(cls.name, current.abilities)
+        : current.abilities
+    }));
+  };
+
+  const handlePremadeSelect = (value: string) => {
+    setSelectedPremade(value);
+    if (value === "Custom") return;
+    const premade = premadeBlocks.find((block) => block.name === value);
+    if (!premade) return;
+    setNpc(mapPremadeToNpc(premade));
+  };
+
+  useEffect(() => {
+    let active = true;
+    const loadReferences = async () => {
+      try {
+        const [racesResponse, classesResponse, premadesResponse] =
+          await Promise.all([
+            fetch("/api/reference?type=races"),
+            fetch("/api/reference?type=classes"),
+            fetch("/api/reference?type=premades")
+          ]);
+
+        if (!active) return;
+        if (racesResponse.ok) {
+          const data = (await racesResponse.json()) as RaceOption[];
+          setRaceOptions(data.sort((a, b) => a.name.localeCompare(b.name)));
+        }
+        if (classesResponse.ok) {
+          const data = (await classesResponse.json()) as ClassOption[];
+          setClassOptions(data.sort((a, b) => a.name.localeCompare(b.name)));
+        }
+        if (premadesResponse.ok) {
+          const data = (await premadesResponse.json()) as PremadeBlock[];
+          setPremadeBlocks(data);
+        }
+      } catch (error) {
+        setStatus("Failed to load reference data.");
+      }
+    };
+
+    loadReferences();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    setSelectedRace(npc.race ? npc.race : "Custom");
+    setSelectedClass(npc.class ? npc.class : "Custom");
+  }, [npc.race, npc.class]);
+
+  useEffect(() => {
+    if (!autoApplyClassArray || selectedClass === "Custom") return;
+    const cls = classOptions.find((option) => option.name === selectedClass);
+    if (!cls) return;
+    setNpc((current) => ({
+      ...current,
+      abilities: applyStandardArray(cls.name, current.abilities)
+    }));
+  }, [autoApplyClassArray, classOptions, selectedClass]);
 
   const handleCopy = async () => {
     setStatus("");
@@ -102,6 +323,7 @@ export default function HomePage() {
       if (!response.ok) throw new Error("Load failed");
       const data = (await response.json()) as NPC;
       setNpc(data);
+      setSelectedPremade("Custom");
       setStatus("Draft loaded.");
     } catch (error) {
       setStatus("Draft load failed.");
@@ -121,6 +343,22 @@ export default function HomePage() {
                 Generate Random NPC (Human Merchant)
               </button>
             </div>
+            <div className="row" style={{ marginTop: 12 }}>
+              <label>
+                Premade Statblock
+                <select
+                  value={selectedPremade}
+                  onChange={(event) => handlePremadeSelect(event.target.value)}
+                >
+                  <option value="Custom">Custom</option>
+                  {premadeBlocks.map((block) => (
+                    <option key={block.name} value={block.name}>
+                      {block.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
           </div>
 
           <div className="section">
@@ -130,11 +368,48 @@ export default function HomePage() {
                 value={npc.name}
                 onChange={(value) => updateNpc({ name: value })}
               />
-              <TextField
-                label="Type"
-                value={npc.type}
-                onChange={(value) => updateNpc({ type: value })}
-              />
+              <label>
+                Race
+                <select
+                  value={selectedRace}
+                  onChange={(event) => handleRaceSelect(event.target.value)}
+                >
+                  <option value="Custom">Custom</option>
+                  {raceOptions.map((race) => (
+                    <option key={race.name} value={race.name}>
+                      {race.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {selectedRace === "Custom" && (
+                <TextField
+                  label="Race (Custom)"
+                  value={npc.race ?? ""}
+                  onChange={(value) => updateNpc({ race: value })}
+                />
+              )}
+              <label>
+                Class
+                <select
+                  value={selectedClass}
+                  onChange={(event) => handleClassSelect(event.target.value)}
+                >
+                  <option value="Custom">Custom</option>
+                  {classOptions.map((cls) => (
+                    <option key={cls.name} value={cls.name}>
+                      {cls.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {selectedClass === "Custom" && (
+                <TextField
+                  label="Class (Custom)"
+                  value={npc.class ?? ""}
+                  onChange={(value) => updateNpc({ class: value })}
+                />
+              )}
               <TextField
                 label="Alignment"
                 value={npc.alignment}
@@ -156,6 +431,15 @@ export default function HomePage() {
                   <option value="Gargantuan">Gargantuan</option>
                 </select>
               </label>
+              <TextField
+                label="Type"
+                value={npc.type}
+                onChange={(value) => updateNpc({ type: value })}
+              />
+            </div>
+            <div className="muted" style={{ marginTop: 8 }}>
+              Race and class selections can auto-fill size, speed, languages, and
+              ability scores.
             </div>
           </div>
 
@@ -200,6 +484,14 @@ export default function HomePage() {
               values={npc.abilities}
               onChange={(value) => updateNpc({ abilities: value })}
             />
+            <label style={{ display: "flex", gap: 8, marginTop: 8 }}>
+              <input
+                type="checkbox"
+                checked={autoApplyClassArray}
+                onChange={(event) => setAutoApplyClassArray(event.target.checked)}
+              />
+              Auto-apply standard array when selecting a class
+            </label>
           </div>
 
           <div className="section">
@@ -233,6 +525,33 @@ export default function HomePage() {
           </div>
 
           <div className="section">
+            <div className="row">
+              <TextField
+                label="Damage Vulnerabilities"
+                value={npc.damageVulnerabilities ?? ""}
+                onChange={(value) =>
+                  updateNpc({ damageVulnerabilities: value })
+                }
+              />
+              <TextField
+                label="Damage Resistances"
+                value={npc.damageResistances ?? ""}
+                onChange={(value) => updateNpc({ damageResistances: value })}
+              />
+              <TextField
+                label="Damage Immunities"
+                value={npc.damageImmunities ?? ""}
+                onChange={(value) => updateNpc({ damageImmunities: value })}
+              />
+              <TextField
+                label="Condition Immunities"
+                value={npc.conditionImmunities ?? ""}
+                onChange={(value) => updateNpc({ conditionImmunities: value })}
+              />
+            </div>
+          </div>
+
+          <div className="section">
             <ListEditor
               label="Traits"
               items={npc.traits}
@@ -245,6 +564,22 @@ export default function HomePage() {
               label="Actions"
               items={npc.actions}
               onChange={(items) => updateNpc({ actions: items })}
+            />
+          </div>
+
+          <div className="section">
+            <ListEditor
+              label="Bonus Actions"
+              items={npc.bonusActions ?? []}
+              onChange={(items) => updateNpc({ bonusActions: items })}
+            />
+          </div>
+
+          <div className="section">
+            <ListEditor
+              label="Reactions"
+              items={npc.reactions ?? []}
+              onChange={(items) => updateNpc({ reactions: items })}
             />
           </div>
 

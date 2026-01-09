@@ -15,6 +15,8 @@ export type NamedEntry = {
 export type NPC = {
   name: string;
   size: "Tiny" | "Small" | "Medium" | "Large" | "Huge" | "Gargantuan";
+  race?: string;
+  class?: string;
   type: string;
   alignment: string;
   armorClass: number;
@@ -28,8 +30,14 @@ export type NPC = {
   skills?: string;
   senses?: string;
   languages?: string;
+  damageVulnerabilities?: string;
+  damageResistances?: string;
+  damageImmunities?: string;
+  conditionImmunities?: string;
   challengeRating: string;
   traits: NamedEntry[];
   actions: NamedEntry[];
+  bonusActions?: NamedEntry[];
+  reactions?: NamedEntry[];
   spellcasting?: string;
 };

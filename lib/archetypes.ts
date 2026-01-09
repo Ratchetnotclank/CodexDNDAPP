@@ -14,6 +14,8 @@ export function createHumanMerchant(): NPC {
   return {
     name: randomFrom(MERCHANT_NAMES),
     size: "Medium",
+    race: "Human",
+    class: "Commoner",
     type: "humanoid (human)",
     alignment: "neutral",
     armorClass: 12,
