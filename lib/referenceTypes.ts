@@ -5,6 +5,7 @@ export type RaceOption = {
   languages: string;
   creatureTypes: string[];
   darkvision: number | null;
+  source: string;
 };
 
 export type ClassOption = {
@@ -13,6 +14,7 @@ export type ClassOption = {
   startingProficiencies: {
     skills?: Array<{ choose?: { from: string[]; count: number } }>;
   } | null;
+  source: string;
 };
 
 export type PremadeBlock = {
@@ -37,4 +39,10 @@ export type PremadeBlock = {
   actions: Array<{ name: string; text: string }> | null;
   bonus_actions: Array<{ name: string; text: string }> | null;
   reactions: Array<{ name: string; text: string }> | null;
+  source: string;
+};
+
+export type ReferenceResponse<T> = {
+  items: T[];
+  sources: string[];
 };
