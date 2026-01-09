@@ -87,6 +87,11 @@ textarea {
   font-family: inherit;
 }
 
+input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+}
+
 textarea {
   min-height: 90px;
   resize: vertical;
@@ -152,6 +157,20 @@ button:disabled {
   font-family: "Courier New", monospace;
   white-space: pre-wrap;
   min-height: 400px;
+}
+
+.source-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: center;
+}
+
+.source-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
 }
 
 .muted {

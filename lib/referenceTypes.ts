@@ -44,5 +44,5 @@ export type PremadeBlock = {
 
 export type ReferenceResponse<T> = {
   items: T[];
-  sources: string[];
+  sources: Array<{ code: string; label: string }>;
 };
